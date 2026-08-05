@@ -38,7 +38,8 @@ class ProfileStore {
 
   getProfileLabel(profile) {
     if (profile.preset === 'other') {
-      return profile.customLabel || 'Custom';
+      const label = (profile.customLabel || '').trim();
+      return label || null;
     }
     return PRESETS[profile.preset] || 'Unknown';
   }
