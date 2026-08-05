@@ -2,6 +2,7 @@
 import { profileStore } from '../profile/profile-store.js';
 import { buildPrompt } from '../llm/prompt-template.js';
 import { litertClient } from '../llm/litert-client.js';
+import { renderMarkdown } from './markdown.js';
 
 // State management
 let currentState = 'idle'; // idle, extracting, downloading, generating, done, error
@@ -98,9 +99,14 @@ async function summarise() {
     if (!litertClient.modelLoaded) {
       setState('downloading');
       await litertClient.loadModel((progress) => {
-        if (progress.status === 'downloading') {
+        if (progress.status === 'cached') {
+          statusDiv.textContent = 'Loading model from cache...';
+        } else if (progress.status === 'downloading') {
           const pct = Math.round(progress.progress);
-          statusDiv.textContent = `Downloading model... ${pct}%`;
+          const suffix = progress.resumed ? ' (resumed)' : '';
+          statusDiv.textContent = `Downloading model... ${pct}%${suffix}`;
+        } else if (progress.status === 'ready') {
+          statusDiv.textContent = 'Model ready';
         }
       });
     }
@@ -115,7 +121,7 @@ async function summarise() {
 
     await litertClient.summarise(prompt, (token) => {
       fullResponse += token;
-      resultsDiv.textContent = fullResponse;
+      resultsDiv.innerHTML = renderMarkdown(fullResponse);
     });
 
     setState('done', 'Summary complete!');

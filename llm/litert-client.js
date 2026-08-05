@@ -1,13 +1,33 @@
 import { Engine, loadLiteRtLm } from '../vendor/litert-lm-core/dist/index.js';
+import { MODEL_URL } from './model-config.js';
+import { modelCache } from './model-cache.js';
 
-const MODEL_URL = 'https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it-web.litertlm';
 const WASM_PATH = chrome.runtime.getURL('vendor/litert-lm-core/wasm/');
+
+const MAX_NUM_TOKENS = 8192;
+
+// Logs the exact text handed to the model. Collapsed so it stays out of the way
+// during normal use - click it in the console to expand the full prompt.
+function logPrompt(prompt) {
+  const estimatedTokens = Math.ceil(prompt.length / 4);
+  console.groupCollapsed(
+    `Prompt sent to model - ${prompt.length} chars, ~${estimatedTokens} tokens`
+  );
+  console.log(prompt);
+  console.groupEnd();
+  if (estimatedTokens > MAX_NUM_TOKENS) {
+    console.warn(
+      `Prompt may exceed maxNumTokens (${MAX_NUM_TOKENS}); the model will truncate it.`
+    );
+  }
+}
 
 class LiteRTClient {
   constructor() {
     this.engine = null;
     this.modelLoaded = false;
     this.modelLoading = false;
+    this.loadPromise = null;
     this.wasmInitialized = false;
   }
 
@@ -35,13 +55,24 @@ class LiteRTClient {
     }
   }
 
-  // Load the model (Gemma 4 E4B)
+  // Load the model (Gemma 4 E4B). Concurrent callers share one in-flight load
+  // rather than returning early and racing ahead of it.
   async loadModel(onProgress) {
     if (this.modelLoaded) return;
-    if (this.modelLoading) return;
+    if (this.loadPromise) return this.loadPromise;
 
     this.modelLoading = true;
+    this.loadPromise = this.doLoadModel(onProgress);
 
+    try {
+      await this.loadPromise;
+    } finally {
+      this.modelLoading = false;
+      this.loadPromise = null;
+    }
+  }
+
+  async doLoadModel(onProgress) {
     try {
       const hasWebGPU = await this.isWebGPUAvailable();
       if (!hasWebGPU) {
@@ -54,22 +85,51 @@ class LiteRTClient {
       }
 
       console.log('Loading LiteRT-LM model (Gemma 4 E4B-it)...');
-      if (onProgress) onProgress({ status: 'downloading', progress: 0 });
 
-      // Create the Engine with the HuggingFace URL
+      // Prefer the IndexedDB copy so the model survives closing the side panel
+      // or the browser. Any cache failure falls back to streaming from the
+      // network, which is exactly what this client did before caching existed.
+      let modelSource = MODEL_URL;
+      try {
+        const status = await modelCache.getStatus(MODEL_URL);
+        if (status?.complete) {
+          console.log('Using cached model from IndexedDB');
+          if (onProgress) {
+            onProgress({ status: 'cached', progress: 100, totalBytes: status.totalBytes });
+          }
+        } else {
+          await modelCache.download(MODEL_URL, onProgress);
+        }
+        modelSource = modelCache.createStream();
+      } catch (error) {
+        console.warn('Model cache unavailable, streaming from network:', error);
+        if (onProgress) onProgress({ status: 'downloading', progress: 0 });
+      }
+
       // WASM is now set up to use local files, not CDN
-      console.log('Creating LiteRT-LM Engine with model from:', MODEL_URL);
-      this.engine = await Engine.create({
-        model: MODEL_URL,
-        mainExecutorSettings: { maxNumTokens: 8192 },
-      });
+      console.log('Creating LiteRT-LM Engine...');
+      try {
+        this.engine = await Engine.create({
+          model: modelSource,
+          mainExecutorSettings: { maxNumTokens: MAX_NUM_TOKENS },
+        });
+      } catch (error) {
+        if (modelSource === MODEL_URL) throw error;
+        // The cached bytes did not load. Drop them and fall back to the network
+        // so a bad cache can never permanently break the extension.
+        console.warn('Cached model failed to load, discarding it and refetching:', error);
+        await modelCache.clear().catch(() => {});
+        if (onProgress) onProgress({ status: 'downloading', progress: 0 });
+        this.engine = await Engine.create({
+          model: MODEL_URL,
+          mainExecutorSettings: { maxNumTokens: MAX_NUM_TOKENS },
+        });
+      }
 
       this.modelLoaded = true;
-      this.modelLoading = false;
-      if (onProgress) onProgress({ status: 'downloading', progress: 100 });
+      if (onProgress) onProgress({ status: 'ready', progress: 100 });
       console.log('Model and Engine loaded successfully');
     } catch (error) {
-      this.modelLoading = false;
       console.error('Error loading model:', error);
       throw error;
     }
@@ -81,11 +141,11 @@ class LiteRTClient {
       throw new Error('Model not loaded. Call loadModel() first.');
     }
 
-    try {
-      console.log('Creating conversation for summarisation...');
-      const conversation = await this.engine.createConversation();
+    console.log('Creating conversation for summarisation...');
+    const conversation = await this.engine.createConversation();
 
-      console.log('Sending prompt to model...');
+    try {
+      logPrompt(prompt);
       const stream = conversation.sendMessageStreaming(prompt);
 
       let fullResponse = '';
@@ -107,6 +167,10 @@ class LiteRTClient {
     } catch (error) {
       console.error('Error during summarisation:', error);
       throw error;
+    } finally {
+      // Each conversation holds its own KV cache sized by maxNumTokens, so it
+      // has to be released even when generation throws or is cancelled.
+      await conversation.delete();
     }
   }
 }

@@ -143,13 +143,54 @@ header h1 {
   font-size: 14px;
   color: #333;
   min-height: 100px;
-  white-space: pre-wrap;
   word-wrap: break-word;
 }
 
 .results.empty {
   color: #999;
   font-style: italic;
+}
+
+/* Rendered markdown. First and last child margins are collapsed so the block
+   keeps the padding it had when it was plain text. */
+.results > *:first-child {
+  margin-top: 0;
+}
+
+.results > *:last-child {
+  margin-bottom: 0;
+}
+
+.results p {
+  margin: 0 0 12px;
+}
+
+.results h3,
+.results h4,
+.results h5,
+.results h6 {
+  margin: 16px 0 8px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #222;
+}
+
+.results ul,
+.results ol {
+  margin: 0 0 12px;
+  padding-left: 20px;
+}
+
+.results li {
+  margin-bottom: 4px;
+}
+
+.results code {
+  background: #f0f0f0;
+  border-radius: 3px;
+  padding: 1px 4px;
+  font-size: 13px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 #settings {

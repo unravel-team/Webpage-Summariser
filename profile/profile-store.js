@@ -3,11 +3,20 @@ const DEFAULT_PROFILE = {
   customLabel: '',
 };
 
+// Keep in sync with the <select> options in sidepanel/sidepanel.html.
 const PRESETS = {
   engineer: 'Software Engineer',
   lawyer: 'Lawyer',
   doctor: 'Doctor',
   student: 'Student',
+  'product-manager': 'Product Manager',
+  designer: 'Designer',
+  'data-scientist': 'Data Scientist',
+  marketer: 'Marketer',
+  'financial-analyst': 'Financial Analyst',
+  teacher: 'Teacher',
+  journalist: 'Journalist',
+  entrepreneur: 'Entrepreneur',
 };
 
 class ProfileStore {
