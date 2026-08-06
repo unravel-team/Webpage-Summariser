@@ -142,6 +142,36 @@ header h1 {
   background: var(--bg-elevated);
 }
 
+.intent-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.intent-field label {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.intent-field input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: inherit;
+  background: var(--bg-elevated);
+  color: var(--text);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.intent-field input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
 /* Action bar: merges the old status pill + primary button into one
    element so idle/busy/done/error states all live in the same footprint. */
 .action-btn {
@@ -228,6 +258,11 @@ header h1 {
   background: var(--status-error-text);
 }
 .action-btn[data-state="error"] .icon-error { display: block; }
+
+.action-btn[data-state="paused"] {
+  background: var(--status-warn-text);
+}
+.action-btn[data-state="paused"] .icon-paused { display: block; }
 
 @keyframes spin {
   to { transform: rotate(360deg); }

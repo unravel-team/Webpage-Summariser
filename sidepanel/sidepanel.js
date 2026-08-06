@@ -1,5 +1,6 @@
 // Import dependencies
 import { profileStore } from '../profile/profile-store.js';
+import { intentStore } from '../profile/intent-store.js';
 import { buildPrompt } from '../llm/prompt-template.js';
 import { litertClient } from '../llm/litert-client.js';
 import { renderMarkdown } from './markdown.js';
@@ -27,10 +28,12 @@ const PROFILE_ICONS = {
 
 // DOM elements (wait for DOM to be ready)
 let actionBtn, actionLabel, actionProgress, resultsDiv, profileGrid, customProfileDiv, customProfileInput,
-  settingsFeedback, themeToggleBtn, copyBtn, settingsToggleBtn, settingsCloseBtn, settingsDrawer, settingsBackdrop;
+  settingsFeedback, themeToggleBtn, copyBtn, settingsToggleBtn, settingsCloseBtn, settingsDrawer, settingsBackdrop,
+  intentInput;
 
 function initDOMElements() {
   actionBtn = document.getElementById('actionBtn');
+  intentInput = document.getElementById('intentInput');
   actionLabel = actionBtn.querySelector('.action-label');
   actionProgress = actionBtn.querySelector('.action-progress');
   resultsDiv = document.getElementById('results');
@@ -172,11 +175,20 @@ async function saveProfile() {
   }, 2000);
 }
 
+// Load/save the optional per-summary intent (persisted like the profile)
+async function loadIntent() {
+  intentInput.value = await intentStore.getIntent();
+}
+
+function saveIntent() {
+  intentStore.saveIntent(intentInput.value.trim());
+}
+
 // Update UI state
 function setState(state, message = '') {
   currentState = state;
   actionBtn.dataset.state = state;
-  actionBtn.disabled = state !== 'idle' && state !== 'done' && state !== 'error';
+  actionBtn.disabled = state !== 'idle' && state !== 'done' && state !== 'error' && state !== 'paused';
   actionProgress.style.width = '';
 
   const stateMessages = {
@@ -186,6 +198,7 @@ function setState(state, message = '') {
     generating: 'Generating summary...',
     done: 'Summary complete — tap to summarise again',
     error: 'An error occurred. Please try again.',
+    paused: 'Download paused — tap to resume',
   };
 
   actionLabel.textContent = message || stateMessages[state];
@@ -238,6 +251,8 @@ async function summarise() {
           actionProgress.style.width = `${pct}%`;
         } else if (progress.status === 'ready') {
           actionLabel.textContent = 'Model ready';
+        } else if (progress.status === 'paused') {
+          actionLabel.textContent = 'Download paused...';
         }
       });
     }
@@ -245,7 +260,8 @@ async function summarise() {
     setState('generating');
 
     // Step 4: Build prompt and stream response
-    const prompt = buildPrompt(profileLabel, title, url, text);
+    const intent = intentInput.value.trim();
+    const prompt = buildPrompt(profileLabel, title, url, text, intent);
 
     resultsDiv.textContent = '';
     let fullResponse = '';
@@ -257,6 +273,11 @@ async function summarise() {
 
     setState('done');
   } catch (error) {
+    if (error.isDownloadPaused) {
+      console.warn('Model download paused:', error);
+      setState('paused', 'Download paused — tap to resume');
+      return;
+    }
     console.error('Summarise error:', error);
     setState('error', `Error: ${error.message} — tap to retry`);
   }
@@ -292,16 +313,18 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupEventListeners();
   await loadTheme();
   await loadProfile();
+  await loadIntent();
   setState('idle');
 });
 
 function setupEventListeners() {
+  intentInput.addEventListener('change', saveIntent);
   customProfileInput.addEventListener('change', saveProfile);
   customProfileInput.addEventListener('input', () => {
     customProfileInput.classList.remove('invalid');
   });
   actionBtn.addEventListener('click', () => {
-    if (currentState === 'idle' || currentState === 'done' || currentState === 'error') {
+    if (currentState === 'idle' || currentState === 'done' || currentState === 'error' || currentState === 'paused') {
       summarise();
     }
   });

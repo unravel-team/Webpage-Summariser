@@ -98,10 +98,23 @@ class LiteRTClient {
             onProgress({ status: 'cached', progress: 100, totalBytes: status.totalBytes });
           }
         } else {
-          await modelCache.download(MODEL_URL, onProgress);
+          // A network interruption here leaves whole chunks already saved, so
+          // the next loadModel() call resumes instead of restarting - this is
+          // an expected pause, not a fatal error. Surface it as such rather
+          // than falling through to a raw network fetch that's likely also down.
+          try {
+            await modelCache.download(MODEL_URL, onProgress);
+          } catch (downloadError) {
+            console.warn('Model download interrupted, can resume on next attempt:', downloadError);
+            if (onProgress) onProgress({ status: 'paused' });
+            const pausedError = new Error('Model download was interrupted.');
+            pausedError.isDownloadPaused = true;
+            throw pausedError;
+          }
         }
         modelSource = modelCache.createStream();
       } catch (error) {
+        if (error.isDownloadPaused) throw error;
         console.warn('Model cache unavailable, streaming from network:', error);
         if (onProgress) onProgress({ status: 'downloading', progress: 0 });
       }
