@@ -54,7 +54,10 @@
 
     <div id="summary" class="main-content">
       <div class="intent-field">
-        <label for="intentInput">Intent</label>
+        <div class="intent-label-row">
+          <label for="intentInput">Intent</label>
+          <span id="intentRequired" class="intent-required" title="Required on this page" aria-hidden="true" hidden>*</span>
+        </div>
         <input type="text" id="intentInput" placeholder="e.g., focus on pricing, security risks..." autocomplete="off" />
       </div>
 

@@ -148,10 +148,31 @@ header h1 {
   gap: 6px;
 }
 
+.intent-label-row {
+  display: flex;
+  align-items: baseline;
+  gap: 3px;
+}
+
 .intent-field label {
   font-weight: 600;
   font-size: 13px;
   color: var(--text-muted);
+}
+
+/* Shown only for pipelines that cannot work without an intent (YouTube
+   results ranking), so the requirement is visible before the button is hit.
+   The input's aria-required carries this for screen readers. */
+.intent-required {
+  color: var(--status-error-text);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.intent-field input.invalid {
+  border-color: var(--status-error-text);
+  box-shadow: 0 0 0 3px var(--status-error-bg);
 }
 
 .intent-field input {
@@ -339,6 +360,186 @@ header h1 {
   padding: 1px 4px;
   font-size: 13px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* --- YouTube results pipeline ------------------------------------------- */
+
+/* Streamed prose and appended cards are separate containers, so the margin
+   collapsing above has to reach one level deeper. */
+.result-prose > *:first-child {
+  margin-top: 0;
+}
+
+.result-prose > *:last-child {
+  margin-bottom: 0;
+}
+
+/* Inline citation chip, e.g. the "1" in "...covers HPA tuning [1]." */
+.cite {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  margin: 0 1px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  text-decoration: none;
+  vertical-align: 1px;
+}
+
+.cite:hover {
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+
+.yt-notice {
+  margin-bottom: 12px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--status-warn-bg);
+  color: var(--status-warn-text);
+  font-size: 12px;
+}
+
+.video-card {
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-elevated);
+}
+
+.video-card .video-thumb {
+  display: block;
+  float: left;
+  width: 96px;
+  margin: 0 12px 8px 0;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.video-card .video-thumb img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.video-title {
+  display: block;
+  color: var(--text);
+  font-weight: 600;
+  font-size: 13px;
+  line-height: 1.4;
+  text-decoration: none;
+}
+
+.video-title:hover {
+  color: var(--accent);
+}
+
+.video-meta {
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.video-score {
+  margin-left: 6px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--status-done-bg);
+  color: var(--status-done-text);
+  font-weight: 600;
+}
+
+.chapters {
+  clear: both;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.chapters-title,
+.runners-up-title {
+  margin-bottom: 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.chapter {
+  display: flex;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 12px;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.chapter:hover .chapter-label {
+  color: var(--accent);
+}
+
+.chapter-time {
+  flex: none;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.runners-up {
+  margin-top: 16px;
+}
+
+.runner {
+  display: flex;
+  gap: 8px;
+  padding: 6px 0;
+  border-top: 1px solid var(--border);
+  text-decoration: none;
+  color: var(--text);
+}
+
+.runner-score {
+  flex: none;
+  width: 22px;
+  height: 18px;
+  border-radius: 4px;
+  background: var(--status-idle-bg);
+  color: var(--status-idle-text);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+  line-height: 18px;
+}
+
+.runner-text {
+  display: block;
+}
+
+.runner-title {
+  display: block;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.runner:hover .runner-title {
+  color: var(--accent);
+}
+
+.runner-reason {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: 11px;
 }
 
 .icon-btn {

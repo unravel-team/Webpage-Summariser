@@ -1,13 +1,17 @@
 // Import dependencies
 import { profileStore } from '../profile/profile-store.js';
 import { intentStore } from '../profile/intent-store.js';
-import { buildPrompt } from '../llm/prompt-template.js';
 import { litertClient } from '../llm/litert-client.js';
 import { renderMarkdown } from './markdown.js';
+import { selectPipeline } from '../pipelines/registry.js';
 
 // State management
 let currentState = 'idle'; // idle, extracting, downloading, generating, done, error
 let selectedPreset = 'engineer';
+
+// The pipeline for the active tab, resolved on load and whenever the tab
+// changes, so the button can say what it will actually do.
+let activePipeline = selectPipeline('');
 
 // Icons (inline SVG inner markup) for the profile chip grid, one per preset key.
 const PROFILE_ICONS = {
@@ -29,11 +33,12 @@ const PROFILE_ICONS = {
 // DOM elements (wait for DOM to be ready)
 let actionBtn, actionLabel, actionProgress, resultsDiv, profileGrid, customProfileDiv, customProfileInput,
   settingsFeedback, themeToggleBtn, copyBtn, settingsToggleBtn, settingsCloseBtn, settingsDrawer, settingsBackdrop,
-  intentInput;
+  intentInput, intentRequired;
 
 function initDOMElements() {
   actionBtn = document.getElementById('actionBtn');
   intentInput = document.getElementById('intentInput');
+  intentRequired = document.getElementById('intentRequired');
   actionLabel = actionBtn.querySelector('.action-label');
   actionProgress = actionBtn.querySelector('.action-progress');
   resultsDiv = document.getElementById('results');
@@ -192,11 +197,11 @@ function setState(state, message = '') {
   actionProgress.style.width = '';
 
   const stateMessages = {
-    idle: 'Summarise This Page',
+    idle: activePipeline.idleLabel,
     extracting: 'Extracting page content...',
     downloading: 'Downloading model (first time only)...',
     generating: 'Generating summary...',
-    done: 'Summary complete — tap to summarise again',
+    done: activePipeline.doneLabel,
     error: 'An error occurred. Please try again.',
     paused: 'Download paused — tap to resume',
   };
@@ -204,9 +209,68 @@ function setState(state, message = '') {
   actionLabel.textContent = message || stateMessages[state];
 }
 
+// Loads the model on first use. Pipelines call this once they have their input
+// ready, so the download only starts for a run that can actually use it.
+async function ensureModel() {
+  if (litertClient.modelLoaded) return;
+
+  setState('downloading');
+  await litertClient.loadModel((progress) => {
+    if (progress.status === 'cached') {
+      actionLabel.textContent = 'Loading model from cache...';
+    } else if (progress.status === 'downloading') {
+      const pct = Math.round(progress.progress);
+      const suffix = progress.resumed ? ' (resumed)' : '';
+      actionLabel.textContent = `Downloading model… ${pct}%${suffix}`;
+      actionProgress.style.width = `${pct}%`;
+    } else if (progress.status === 'ready') {
+      actionLabel.textContent = 'Model ready';
+    } else if (progress.status === 'paused') {
+      actionLabel.textContent = 'Download paused...';
+    }
+  });
+}
+
+// The results area a pipeline writes to. Streamed prose and appended DOM live in
+// separate containers so re-rendering the stream never wipes out cards that were
+// already appended.
+function createOutput() {
+  let prose = null;
+  let extras = null;
+
+  const ensureContainers = () => {
+    if (prose && prose.isConnected) return;
+    resultsDiv.textContent = '';
+    resultsDiv.classList.remove('empty');
+    prose = document.createElement('div');
+    prose.className = 'result-prose';
+    extras = document.createElement('div');
+    extras.className = 'result-extras';
+    resultsDiv.append(prose, extras);
+  };
+
+  return {
+    clear() {
+      prose = null;
+      ensureContainers();
+    },
+    // `transform` gets the rendered HTML and may post-process it - the YouTube
+    // pipeline uses it to turn [1] markers into citation links.
+    stream(markdown, transform) {
+      ensureContainers();
+      const html = renderMarkdown(markdown);
+      prose.innerHTML = transform ? transform(html) : html;
+    },
+    append(node) {
+      ensureContainers();
+      extras.appendChild(node);
+    },
+  };
+}
+
 async function summarise() {
   try {
-    // Step 1: Get user's profile — fail fast rather than guessing a label
+    // Get user's profile — fail fast rather than guessing a label
     const profile = await profileStore.getProfile();
     const profileLabel = profileStore.getProfileLabel(profile);
     if (!profileLabel) {
@@ -215,60 +279,43 @@ async function summarise() {
       return;
     }
 
-    setState('extracting');
-    resultsDiv.textContent = '';
-    resultsDiv.classList.remove('empty');
-
-    // Step 2: Extract page content
-    const [result] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!result) {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab) {
       setState('error', 'Unable to access the current tab — tap to retry');
       return;
     }
 
-    const injectionResult = await chrome.scripting.executeScript({
-      target: { tabId: result.id },
-      function: extractPageContent,
-    });
+    // The tab may have navigated since the last refresh, so this - not the
+    // cached value - decides both the pipeline and whether intent is mandatory.
+    activePipeline = selectPipeline(tab.url);
+    applyIntentRequirement();
 
-    if (!injectionResult || !injectionResult[0]) {
-      setState('error', 'Failed to extract page content — tap to retry');
+    const intent = intentInput.value.trim();
+    if (activePipeline.requiresIntent && !intent) {
+      intentInput.classList.add('invalid');
+      intentInput.focus();
+      setState(
+        'error',
+        activePipeline.missingIntentMessage || 'Add an intent above, then tap to run'
+      );
       return;
     }
 
-    const { title, url, text } = injectionResult[0].result;
-
-    // Step 3: Load model (first time) and generate summary
-    if (!litertClient.modelLoaded) {
-      setState('downloading');
-      await litertClient.loadModel((progress) => {
-        if (progress.status === 'cached') {
-          actionLabel.textContent = 'Loading model from cache...';
-        } else if (progress.status === 'downloading') {
-          const pct = Math.round(progress.progress);
-          const suffix = progress.resumed ? ' (resumed)' : '';
-          actionLabel.textContent = `Downloading model… ${pct}%${suffix}`;
-          actionProgress.style.width = `${pct}%`;
-        } else if (progress.status === 'ready') {
-          actionLabel.textContent = 'Model ready';
-        } else if (progress.status === 'paused') {
-          actionLabel.textContent = 'Download paused...';
-        }
-      });
-    }
-
-    setState('generating');
-
-    // Step 4: Build prompt and stream response
-    const intent = intentInput.value.trim();
-    const prompt = buildPrompt(profileLabel, title, url, text, intent);
+    console.log(`Running "${activePipeline.id}" pipeline for ${tab.url}`);
 
     resultsDiv.textContent = '';
-    let fullResponse = '';
+    resultsDiv.classList.remove('empty');
 
-    await litertClient.summarise(prompt, (token) => {
-      fullResponse += token;
-      resultsDiv.innerHTML = renderMarkdown(fullResponse);
+    await activePipeline.run({
+      tab,
+      profileLabel,
+      intent,
+      setStatus: (state, message) => setState(state, message),
+      setProgress: (pct) => {
+        actionProgress.style.width = pct === null || pct === undefined ? '' : `${pct}%`;
+      },
+      output: createOutput(),
+      ensureModel,
     });
 
     setState('done');
@@ -278,32 +325,39 @@ async function summarise() {
       setState('paused', 'Download paused — tap to resume');
       return;
     }
-    console.error('Summarise error:', error);
+    console.error('Pipeline error:', error);
     setState('error', `Error: ${error.message} — tap to retry`);
   }
 }
 
-// Helper: extract page content (injected into the page)
-function extractPageContent() {
-  const title = document.title || '';
-  const url = window.location.href;
-
-  const bodyClone = document.body.cloneNode(true);
-
-  const elementsToRemove = bodyClone.querySelectorAll(
-    'script, style, nav, footer, [style*="display:none"], [hidden], iframe, noscript'
-  );
-  elementsToRemove.forEach((el) => el.remove());
-
-  let text = bodyClone.innerText || bodyClone.textContent || '';
-  text = text.replace(/\s+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
-
-  const MAX_LENGTH = 8000;
-  if (text.length > MAX_LENGTH) {
-    text = text.substring(0, MAX_LENGTH) + '...';
+// Whether the intent is optional or mandatory depends on which pipeline owns
+// the current tab, so the field re-labels itself as the user navigates.
+function applyIntentRequirement() {
+  const required = Boolean(activePipeline.requiresIntent);
+  intentRequired.hidden = !required;
+  intentInput.setAttribute('aria-required', String(required));
+  intentInput.placeholder =
+    activePipeline.intentPlaceholder || 'e.g., focus on pricing, security risks...';
+  if (!required || intentInput.value.trim()) {
+    intentInput.classList.remove('invalid');
   }
+}
 
-  return { title, url, text };
+// Keep the idle button label and the intent field honest about what the active
+// tab will do. Called on load, on tab switch, and on in-tab navigation - YouTube
+// routes client-side, so leaving the search page has to relax the requirement
+// just as arriving on it imposes it.
+async function refreshActivePipeline() {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    activePipeline = selectPipeline(tab && tab.url);
+  } catch (error) {
+    activePipeline = selectPipeline('');
+  }
+  applyIntentRequirement();
+  if (currentState === 'idle' || currentState === 'done') {
+    setState(currentState);
+  }
 }
 
 // Initialize on load
@@ -314,11 +368,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   await loadTheme();
   await loadProfile();
   await loadIntent();
+  await refreshActivePipeline();
   setState('idle');
 });
 
 function setupEventListeners() {
   intentInput.addEventListener('change', saveIntent);
+  intentInput.addEventListener('input', () => {
+    if (intentInput.value.trim()) intentInput.classList.remove('invalid');
+  });
   customProfileInput.addEventListener('change', saveProfile);
   customProfileInput.addEventListener('input', () => {
     customProfileInput.classList.remove('invalid');
@@ -330,6 +388,10 @@ function setupEventListeners() {
   });
   themeToggleBtn.addEventListener('click', toggleTheme);
   copyBtn.addEventListener('click', copyResults);
+  chrome.tabs.onActivated.addListener(refreshActivePipeline);
+  chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    if (changeInfo.url && tab.active) refreshActivePipeline();
+  });
   settingsToggleBtn.addEventListener('click', openSettingsDrawer);
   settingsCloseBtn.addEventListener('click', closeSettingsDrawer);
   settingsBackdrop.addEventListener('click', closeSettingsDrawer);
