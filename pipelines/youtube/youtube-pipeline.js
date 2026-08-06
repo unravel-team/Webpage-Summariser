@@ -21,6 +21,14 @@ const SEARCH_URL_RE = /^https?:\/\/(www\.)?youtube\.com\/results\b/i;
 // How many of the ranked videos get written up and cited in the prose.
 const TOP_N = 5;
 
+// Videos scored per model call. Scoring all 20 at once is a ~2.7k-token prefill
+// in a single submit, which is enough GPU work to lose the WebGPU device - and
+// the device is memoized on the WASM module, so losing it breaks every later
+// run too. Batching caps the largest prefill at ~2.2k tokens. Scores stay
+// comparable because every batch is judged against the same rubric and the same
+// stated intent.
+const RANK_BATCH_SIZE = 16;
+
 export const youtubeSearchPipeline = {
   id: 'youtube-search',
   idleLabel: 'Rank These Results',
@@ -65,14 +73,35 @@ export const youtubeSearchPipeline = {
 
     await ensureModel();
 
-    // 3. Rank
-    setStatus('generating', `Scoring ${videos.length} videos...`);
-    const rankPrompt = buildRankPrompt(videos, { profileLabel, intent, query });
-    const rankOutput = await litertClient.summarise(rankPrompt);
-    const { entries, degraded } = parseRanking(rankOutput);
-    if (degraded) {
-      console.warn('Ranking output was not clean JSON; salvaged entries:', entries.length, rankOutput);
+    // 3. Rank, a batch at a time.
+    const entries = [];
+    for (let start = 0; start < videos.length; start += RANK_BATCH_SIZE) {
+      const batch = videos.slice(start, start + RANK_BATCH_SIZE);
+      const done = start + batch.length;
+      setStatus('generating', `Scoring videos (${done}/${videos.length})...`);
+      setProgress(Math.round((done / videos.length) * 100));
+
+      const rankPrompt = buildRankPrompt(batch, { profileLabel, intent, query });
+      const rankOutput = await litertClient.summarise(rankPrompt);
+      const { entries: batchEntries, degraded } = parseRanking(rankOutput);
+      if (degraded) {
+        console.warn(
+          `Ranking output for videos ${start + 1}-${done} was not clean JSON; salvaged entries:`,
+          batchEntries.length,
+          rankOutput
+        );
+      }
+
+      // The model scores each batch as 1..n, so shift the ids back onto the
+      // full list and drop anything it invented outside the batch.
+      for (const entry of batchEntries) {
+        if (entry.id >= 1 && entry.id <= batch.length) {
+          entries.push({ ...entry, id: entry.id + start });
+        }
+      }
     }
+    setProgress(null);
+
     const ranked = applyRanking(videos, entries);
     const topVideos = ranked.slice(0, TOP_N);
 

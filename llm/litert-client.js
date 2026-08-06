@@ -1,4 +1,4 @@
-import { Engine, loadLiteRtLm } from '../vendor/litert-lm-core/dist/index.js';
+import { Engine, loadLiteRtLm, unloadLiteRtLm } from '../vendor/litert-lm-core/dist/index.js';
 import { MODEL_URL } from './model-config.js';
 import { modelCache } from './model-cache.js';
 
@@ -148,6 +148,33 @@ class LiteRTClient {
     }
   }
 
+  // Tear everything down after a GPU-level failure so the next call rebuilds.
+  //
+  // Dropping the Engine alone is not enough: the WebGPU device is created once
+  // per WASM module and memoized on `preinitializedWebGPUDevice`, so a new
+  // Engine would be handed the same dead device and fail identically. The WASM
+  // module has to go too. The model bytes are re-read from IndexedDB, so this
+  // costs a reload but never a re-download.
+  async discard() {
+    const engine = this.engine;
+    this.engine = null;
+    this.modelLoaded = false;
+    this.wasmInitialized = false;
+
+    if (engine) {
+      try {
+        await engine.delete();
+      } catch (error) {
+        console.warn('Engine teardown failed, unloading anyway:', error);
+      }
+    }
+    try {
+      unloadLiteRtLm();
+    } catch (error) {
+      console.warn('WASM unload failed:', error);
+    }
+  }
+
   // Summarise the page content with streaming
   async summarise(prompt, onTokenStream) {
     if (!this.modelLoaded || !this.engine) {
@@ -179,11 +206,26 @@ class LiteRTClient {
       return fullResponse;
     } catch (error) {
       console.error('Error during summarisation:', error);
+
+      // The vendor errors the stream without cancelling the C++ generation, so
+      // stop it before anything else touches the engine.
+      try {
+        conversation.cancel();
+      } catch (cancelError) {
+        console.warn('Cancel after failure did not take:', cancelError);
+      }
+
+      // No conversation.delete() here on purpose: it waits on the executor
+      // mutex, which the failed generation may still be holding, and discard()
+      // throws away the module the KV cache lives in anyway.
+      await this.discard();
       throw error;
     } finally {
       // Each conversation holds its own KV cache sized by maxNumTokens, so it
-      // has to be released even when generation throws or is cancelled.
-      await conversation.delete();
+      // has to be released even when generation is cancelled.
+      if (this.engine) {
+        await conversation.delete();
+      }
     }
   }
 }
