@@ -15,7 +15,7 @@ Two things shape every answer:
 | Where you are | What happens |
 | --- | --- |
 | Any page | Extracts the readable text and summarises it for your profile and intent. |
-| `youtube.com/results?search_query=…` | Ignores the page text. Collects the result cards, fetches each video's real description, scores every video against your intent, and writes a short briefing with citation links, plus a card for the top pick with chapter jump links. |
+| `youtube.com/results?search_query=…` | Collects the result cards, fetches each video's real description, scores every video against your intent, and writes a short briefing with citation links, plus a card for the top pick with chapter jump links. |
 
 On YouTube search the intent field is **required** — there is nothing to score
 against without it. The field re-labels itself as you navigate, including
