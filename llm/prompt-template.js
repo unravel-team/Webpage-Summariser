@@ -5,8 +5,8 @@ Page Title: ${title}
 Page URL: ${url}
 
 Content:
-${text}
 ${intent.trim() ? `\nThe reader has specified this intent for the summary — prioritize it above the general profile focus: ${intent.trim()}\n` : ''}
 Please provide a concise, clear summary (2-3 paragraphs) highlighting the key points most relevant to a ${profileLabel}.
-Directly output the summariser's response without saying that from the perspective of a ${profileLabel}.`;
+Directly output the summariser's response without saying that from the perspective of a ${profileLabel}.
+${text}`;
 }
