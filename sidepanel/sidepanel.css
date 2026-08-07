@@ -508,6 +508,25 @@ header h1 {
   color: var(--text);
 }
 
+/* The number the prose cites for this video, so [2] in the text is findable in
+   the list below it. Matches .cite so the pairing reads as one thing. */
+.cite-index {
+  flex: none;
+  display: inline-block;
+  min-width: 14px;
+  height: 16px;
+  margin-right: 6px;
+  padding: 0 3px;
+  border-radius: 4px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  text-align: center;
+  line-height: 16px;
+  vertical-align: 2px;
+}
+
 .runner-score {
   flex: none;
   width: 22px;

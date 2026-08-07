@@ -11,6 +11,7 @@
 
 import { litertClient } from '../../llm/litert-client.js';
 import { collectFromTab, MAX_VIDEOS } from './collect.js';
+import { ensureVideoCount, hasCachedProgram, refreshScrollProgram } from './scroll-agent.js';
 import { runEnrichers } from './enrich.js';
 import { buildRankPrompt, parseRanking, applyRanking } from './rank.js';
 import { buildOverviewPrompt } from './synthesize.js';
@@ -29,6 +30,11 @@ const TOP_N = 5;
 // stated intent.
 const RANK_BATCH_SIZE = 16;
 
+// Below this many cards on the page, the scroll agent runs to load more. One
+// rank batch, so a page that starts sparse still gets scored in a single model
+// call.
+const MIN_VIDEOS = 16;
+
 export const youtubeSearchPipeline = {
   id: 'youtube-search',
   idleLabel: 'Rank These Results',
@@ -45,9 +51,17 @@ export const youtubeSearchPipeline = {
   },
 
   async run({ tab, profileLabel, intent, setStatus, setProgress, output, ensureModel }) {
-    // 1. Collect
+    // 1. Collect. YouTube renders results lazily, so a page the user has not
+    // scrolled may only hold a handful of cards - too few to rank usefully. The
+    // scroll agent loads more before we take the list.
     setStatus('extracting', 'Reading search results...');
-    const { query, videos } = await collectFromTab(tab.id, MAX_VIDEOS);
+    let { query, videos } = await collectFromTab(tab.id, MAX_VIDEOS);
+
+    if (videos.length < MIN_VIDEOS) {
+      const scrolled = await ensureVideoCount(tab.id, { target: MIN_VIDEOS, setStatus });
+      console.log('scroll-agent:', scrolled);
+      ({ query, videos } = await collectFromTab(tab.id, MAX_VIDEOS));
+    }
 
     if (!videos.length) {
       output.clear();
@@ -123,8 +137,18 @@ export const youtubeSearchPipeline = {
     });
 
     // 5. The links themselves, built from collected data rather than model text.
-    if (topVideos[0]) output.append(topPickCard(topVideos[0]));
+    // The cards carry the same numbering the prose cites: the top pick is [1],
+    // and the runners-up continue from [2] in ranked order.
+    if (topVideos[0]) output.append(topPickCard(topVideos[0], 1));
     const rest = ranked.slice(1, TOP_N);
-    if (rest.length) output.append(runnersUpList(rest));
+    if (rest.length) output.append(runnersUpList(rest, 2));
+
+    // 6. Off the critical path: refill the scroll program cache. The user
+    // already has their answer and the model is already loaded, so this is the
+    // one place where a generation failure - which discards the WebGPU device
+    // and forces a full model reload - cannot cost anyone anything.
+    if (!(await hasCachedProgram(MIN_VIDEOS))) {
+      await refreshScrollProgram({ target: MIN_VIDEOS });
+    }
   },
 };

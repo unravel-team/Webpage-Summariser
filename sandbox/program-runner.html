@@ -1,0 +1,12 @@
+<!--
+  Sandboxed page whose only job is to run the model's scroll program.
+
+  Extension pages cannot eval (MV3 forbids 'unsafe-eval' in extension_pages) and
+  youtube.com enforces Trusted Types, so neither the side panel nor an injected
+  script can compile a generated string. A sandboxed page is the one place left:
+  it gets its own CSP with 'unsafe-eval', a null origin, and no chrome.* APIs at
+  all - which is exactly the trade we want.
+-->
+<meta charset="utf-8">
+<title>scroll program runner</title>
+<script src="program-runner.js"></script>

@@ -7,6 +7,12 @@
 
 const DESCRIPTION_CHARS_FOR_RANKING = 500;
 
+// Small models wrap their output in markdown fences however often you tell them
+// not to. Shared with the scroll agent, which has the same problem with code.
+export function stripCodeFences(text) {
+  return (text || '').replace(/```(?:json|js|javascript)?/gi, '');
+}
+
 function truncate(text, limit) {
   const clean = (text || '').replace(/\s+/g, ' ').trim();
   return clean.length > limit ? `${clean.slice(0, limit)}…` : clean;
@@ -34,11 +40,18 @@ function describeVideo(video, id) {
 export function buildRankPrompt(videos, { profileLabel, intent, query }) {
   const list = videos.map((video, index) => describeVideo(video, index + 1)).join('\n\n');
 
+  // The stated intent is the rubric; the profession is a tie-breaker on top of
+  // it. A reader who says what they want has overridden what their job implies,
+  // so a video that serves the intent must outscore one that merely suits the
+  // profession.
   const goal = intent && intent.trim()
-    ? `The reader's stated intent: ${intent.trim()}`
+    ? `The reader's stated intent, which is the primary thing you are scoring against:
+${intent.trim()}
+
+Their background is ${profileLabel}. Use it only to break ties between videos that serve the intent equally well - never to favour a video that fits the background but not the intent.`
     : `The reader has not stated an intent, so judge by what a ${profileLabel} would find most useful.`;
 
-  return `You are ranking YouTube videos for a ${profileLabel}.
+  return `You are ranking YouTube videos.
 
 ${goal}
 ${query ? `They searched for: ${query}` : ''}
@@ -46,7 +59,7 @@ ${query ? `They searched for: ${query}` : ''}
 Videos:
 ${list}
 
-Score every video from 0 to 10 for how well it serves the reader's intent. Judge the actual substance: depth, specificity, and whether it covers what the reader asked for. Penalise clickbait, shallow overviews and off-topic videos.
+Score every video from 0 to 10 for how well it serves the reader's stated intent. A video that directly answers the intent scores high even if it is basic; a polished video that does not address the intent scores low however good it is. Judge actual substance: depth, specificity, and whether it covers what the reader asked for. Penalise clickbait, shallow overviews and off-topic videos.
 
 Respond with ONLY a JSON array, one object per video, no other text:
 [{"id": 1, "score": 7, "reason": "short justification"}]
@@ -69,7 +82,7 @@ function coerceEntry(raw) {
 // stray token is not acceptable - so try progressively looser reads before
 // giving up.
 export function parseRanking(rawOutput) {
-  const text = (rawOutput || '').replace(/```(?:json)?/gi, '');
+  const text = stripCodeFences(rawOutput);
 
   const start = text.indexOf('[');
   const end = text.lastIndexOf(']');

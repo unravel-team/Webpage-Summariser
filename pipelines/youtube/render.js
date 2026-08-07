@@ -65,7 +65,11 @@ function chapterUrl(video, seconds) {
 
 // The headline result: thumbnail, linked title, metadata, and jump links for any
 // chapters the description declared.
-export function topPickCard(video) {
+//
+// `index` is the citation number the prose uses for this video. It is shown on
+// the card because otherwise a reader who sees [1] in the text has no way to
+// tell which card that is - the numbering was correct before, just invisible.
+export function topPickCard(video, index = 1) {
   const card = document.createElement('div');
   card.className = 'video-card';
 
@@ -84,7 +88,8 @@ export function topPickCard(video) {
       <img src="${escapeHtml(video.thumbnail)}" alt="" loading="lazy">
     </a>
     <div class="video-body">
-      <a class="video-title" href="${escapeHtml(video.url)}" target="_blank" rel="noopener">${escapeHtml(video.title)}</a>
+      <a class="video-title" href="${escapeHtml(video.url)}" target="_blank" rel="noopener">
+        <span class="cite-index">${escapeHtml(index)}</span>${escapeHtml(video.title)}</a>
       <div class="video-meta">${meta}${scoreBadge}</div>
     </div>
   `;
@@ -109,16 +114,22 @@ export function topPickCard(video) {
   return card;
 }
 
-// The remaining ranked videos, compact: score, title, and the ranker's reason.
-export function runnersUpList(videos) {
+// The remaining ranked videos, compact: citation number, score, title, and the
+// ranker's reason.
+//
+// `startIndex` is the citation number of the first video here. It defaults to 2
+// because the caller hands us ranked.slice(1, TOP_N) - the top pick is [1] and
+// lives on its own card - so these continue the same numbering the prose cites.
+export function runnersUpList(videos, startIndex = 2) {
   const wrapper = document.createElement('div');
   wrapper.className = 'runners-up';
   wrapper.innerHTML =
     '<div class="runners-up-title">Also ranked</div>' +
     videos
       .map(
-        (video) =>
+        (video, offset) =>
           `<a class="runner" href="${escapeHtml(video.url)}" target="_blank" rel="noopener">` +
+          `<span class="cite-index">${escapeHtml(startIndex + offset)}</span>` +
           `<span class="runner-score">${video.score === null || video.score === undefined ? '–' : escapeHtml(video.score)}</span>` +
           `<span class="runner-text"><span class="runner-title">${escapeHtml(video.title)}</span>` +
           (video.reason ? `<span class="runner-reason">${escapeHtml(video.reason)}</span>` : '') +

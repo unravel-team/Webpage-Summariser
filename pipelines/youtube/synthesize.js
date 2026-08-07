@@ -34,23 +34,29 @@ function describeVideo(video, id) {
 export function buildOverviewPrompt(topVideos, { profileLabel, intent, query }) {
   const list = topVideos.map((video, index) => describeVideo(video, index + 1)).join('\n\n');
 
+  // Intent leads. The profession only sets the pitch - what to explain and at
+  // what level - because a reader who has said what they want has overridden
+  // whatever their job would have implied.
   const goal = intent && intent.trim()
-    ? `What they want: ${intent.trim()}`
-    : `They have not stated a specific intent; write for a ${profileLabel}.`;
+    ? `What the reader wants, which governs everything below: ${intent.trim()}
+Their background is ${profileLabel}. Use that only to pitch the explanation at the right level, never to change the subject away from what they asked for.`
+    : `The reader has not said what they want, so write for a ${profileLabel}.`;
 
-  return `You are writing a short briefing for a ${profileLabel} about the best videos found for their search.
-  ${query ? `Their question: ${query}\n` : ''}${goal ? `${goal}\n` : ''}
-  The candidates, already ranked, best first:
-  ${list}
+  return `You are writing a short briefing about the best videos found for a search.
+${goal}
+${query ? `Their search: ${query}\n` : ''}
+The candidates, already ranked, best first:
+${list}
 
-  Write in this shape, 60-80 words total:
-  - A title/Heading of 4-8 words naming the specific thing these videos teach. Not "Video Recommendations" or a restatement of the search.
-  - One or two lines of real substance about the topic itself - the key idea or the thing a newcomer gets wrong - not a description of what was found.
-  - Three bullets, one line each: which to watch first and what it covers that the others don't [1]; what the next-best adds [2]; what none of them cover.
+Write in this shape, 70-100 words total:
+- A title/Heading of 4-8 words naming the specific thing these videos teach. Not "Video Recommendations" or a restatement of the search.
+- One or two lines of real substance about the topic itself - the key idea or the thing a newcomer gets wrong - not a description of what was found.
+- Three bullets, one line each, one per video: what [1] gives the reader and why to start there; what [2] adds that [1] does not; what [3] adds beyond both.
 
-  Rules:
-  - Put the bracketed number immediately after the claim it supports, like [1] or [2]. Use [1][2] when two videos support the same claim.
-  - Write only the topic and the videos. No URLs, links, channel handles, or timestamps.
-  - Address the reader directly about the subject. Never refer to the search, the results, the list, the page, or "these videos".
-  - If the candidates are weak or off-topic, say so in the lead lines and keep the bullets short rather than overselling a poor match.`;
+Rules:
+- Every bullet must recommend something. Do not write a bullet about what is missing, absent, or not covered - the reader can only watch what is here.
+- Put the bracketed number immediately after the claim it supports, like [1] or [2]. Use [1][2] when two videos support the same claim.
+- Write only the topic and the videos. No URLs, links, channel handles, or timestamps.
+- Address the reader directly about the subject. Never refer to the search, the results, the list, the page, or "these videos".
+- If the candidates are weak or off-topic, say so plainly in the lead lines and keep the bullets short rather than overselling a poor match.`;
 }
